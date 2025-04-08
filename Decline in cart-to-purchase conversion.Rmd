@@ -1,0 +1,1583 @@
+---
+title: "BUAN 650 - Final Project"
+output:
+  html_document:
+    df_print: paged
+date: "December 2025"
+---
+# **TABLE OF CONTENTS**
+
+- [Overview](#overview)
+- [Data Preparation](#data-preparation)
+- [Exploratory Data Analysis](#exploratory-data-analysis)
+- [Predictive Modeling](#predictive-modeling)
+- [Recommended Solutions](#recommended-solutions)
+
+# **OVERVIEW**
+
+## Introduction
+The provided data represents approximately six months of e-commerce activity for a multi-category retailer. The purpose of this project is to: 
+
+1. Understand the data, focusing on customer or product features associated with purchases
+
+2. Determine the impact of a specific problem occurring in a month of data
+
+3. Use models to find patterns that can help marketing or product departments recover lost revenue in future months
+
+## Specific Problem/Challenge
+A 10% decline occurs in the cart-to-purchase ratio for a period/month. This implies that there is some issue affecting a user's likelihood to make a purchase after adding an item to their cart.
+
+## Assumptions 
+- We use the latest month, February, as the baseline data
+- We assume that the decline in purchases is distributed randomly and attempt to understand patterns associated with the decline
+
+## Analysis Process
+
+### Data Preparation Overview
+- In order to prepare the data for analysis, we deduplicated and performed some modifications to the data to make it easier to analyze, such as designating user identification as categorical and differentiating product sub-categories, as well as creating multiple versions of the price field in case it was needed in modeling.
+
+### Exploratory Data Analysis Overview
+- Using the entire dataset, we sought to understand the current cart-to-purchase ratio and total revenue associated with cart adds and purchases, and we created some descriptive statistics and visualizations. The overall cart-to-purchase ratio appears to be .59, with $8.6M in revenue added to carts and $5.1M in revenue in purchases for the entire dataset.  
+- We then extracted a baseline month (February) and simulated March data based on February data with a 10% decline in the cart-to-purchase ratio by randomly removing sufficient purchases to result in that decline.
+- In the March data, we examined the impact on lost revenue in terms of several factors: products, pricing, and user engagement features. We then merged fields such as interaction counts, session duration, user interaction frequency, and category diversity back into the dataset for use in modeling.
+
+**Exploratory Data Analysis Summary**
+
+- The cart-to-purchase ratio declined by 10% in March compared to February
+- Total revenue for February (baseline): $1,376,806
+- Financial impact of the decline: $213,921.06 in lost revenue
+- Estimated total revenue for March: $1,162,885
+- Top categories affected: Videocards
+- The top selling products remained the same videocards from February to March
+- Most impacted price buckets: $200–$300
+
+### Predictive Modeling Overview
+- The goal of our predictive modeling approach was to understand the features and predict the decision likelihood for cart-to-purchase conversion. With a better sense of why some customers were more likely than others to convert to a purchase, we could then identify the key influencers that product and marketing teams can use to influence conversion behavior and increase revenue. 
+- We used classification tree, random forest, and logistic models to classify the likelihood that a session would convert to a purchase and compared the performance of all three models. We chose these models due to their usefulness in classification analysis, as well as their practicality; implementing these models is fairly straightforward, and if the drop in cart-to-purchase ratio is a continuing issue, we wanted to provide relatively easy-to-implement models for the company to use in addressing this issue on an ongoing basis. Other models, like XGBoost, are more resource-intensive.
+- Based on several performance metrics, the random forest model was the most successful at identifying the key factors driving cart-to-purchase conversions. This was the model we selected, allowing us to recommend targeted actions to influence conversion, grounded in statistical insights. 
+- Then, we simulated a third month in which the higher likelihood sessions are promoted, sufficient to ensure that the total value of purchases increased from $1,162,885 in March to $1,376,806 or more in the next month, recovering lost revenue.
+- Additionally, we performed regression analysis to determine the specific revenue impact of increasing an example variable (such as cart additions); however, findings from this model were not chosen for our recommendations given the model's limited robustness.
+
+## Recommendations Overview
+Among customers with the highest likelihood of converting from cart to purchase, the key influencers are: 
+
+- **Cart Count:** The number of items added to the cart
+- **Session Duration:** The time spent on the platform during a session
+- **Views Count:** The number of product views per session
+- **Price:** Low- to mid-range items (<$300 USD) are more likely to convert
+- **Category Diversity:** Users interacting with multiple categories of products are more likely to convert
+- **Product Category:** Specific high-level product categories influence the likelihood of conversion
+
+More detail on specific interventions the company could implement are available in the recommendations section of this report. Additionally, limitations in our analysis are discussed in that section in detail and include assumptions in the distribution of data, incomplete data, model simplifications, and simulation limitations.
+
+In summary, the focus should be on recovering $213,921 in lost revenue through enhanced user engagement, optimized pricing, and category diversity. Immediate actions include cart abandonment campaigns, showcasing bestsellers, and cross-selling prompts, while medium-term strategies involve dynamic pricing, curated promotions, and category exploration. 
+
+A campaign that targets these key influencers and that results in a ~20% increase in top likelihood customers and ~20% decrease in lowest likelihood customers would result in a revenue increase of ~$217,000 from March to April, recovering the lost revenue.
+
+# **DATA PREPARATION**
+
+# **Step 1: Get required libraries and data**
+
+## Step 1a: Get required libraries
+```{r}
+options(warn = -1)
+suppressMessages(library(readxl))
+suppressMessages(library(janitor))
+suppressMessages(library(rsample))
+suppressMessages(library(ROCR))
+suppressMessages(library(glmnet))
+suppressMessages(library(plotmo))
+suppressMessages(library(car))
+suppressMessages(library(dplyr))
+suppressMessages(library(scales))
+suppressMessages(library(tidyr))
+suppressMessages(library(rpart))
+suppressMessages(library(rpart.plot))
+suppressMessages(library(caret))
+suppressMessages(library(randomForest))
+suppressMessages(library(rpart))
+suppressMessages(library(ROCR))
+suppressMessages(library(ggplot2))
+suppressMessages(library(ggpmisc))
+```
+
+## Steb 1b: Get data
+```{r}
+suppressMessages(setwd("C:/Users/henn5285/OneDrive - University of St. Thomas/Documents/MSBA/Predictive Analytics/Data Files/Final Project/"))
+
+suppressMessages(FinalProjectData <- read_excel("FinalProjectData.xlsx"))
+```
+
+# **Step 2: Inspect and clean the data**
+
+## Step 2a: Preliminary step: Create a dataframe
+```{r}
+df <- FinalProjectData
+```
+
+## Step 2b: View data summaries
+```{r}
+head(df)
+summary(df)
+```
+
+## Step 2c: Overall data cleaning and preparation
+
+### Data de-duplication
+We needed to de-duplicate data where there are rows with all information the same; these are duplicate data entries, not independent events
+```{r}
+# Identify duplicate rows in the data frame
+duplicates <- df[duplicated(df) | duplicated(df, fromLast = TRUE), ]
+
+# View the first few rows of duplicates
+head(duplicates)
+
+# Get a summary of duplicates
+summary(duplicates)
+count(duplicates)
+
+# Remove duplicate rows
+deduplicateddf <- distinct(df)
+```
+
+### Designate specific columns as character data type
+```{r}
+deduplicateddf$product_id <- as.character(deduplicateddf$product_id)
+deduplicateddf$category_id <- as.character(deduplicateddf$category_id)
+deduplicateddf$user_id <- as.character(deduplicateddf$user_id)
+```
+
+### Convert UTC timestamp into separate date and time objects
+```{r}
+timestamp_posix <- as.POSIXlt(deduplicateddf$event_time, tz = "UTC")
+deduplicateddf$time_month <- timestamp_posix$mon + 1  # Adding 1 because month index starts from 0
+deduplicateddf$time_day <- timestamp_posix$mday
+deduplicateddf$time_hour <- timestamp_posix$hour
+```
+
+### Split the category column 
+```{r}
+split_categories <- strsplit(deduplicateddf$category_code, "\\.")
+deduplicateddf$category_1 <- sapply(split_categories, function(x) x[1])
+deduplicateddf$category_2 <- sapply(split_categories, function(x) ifelse(length(x) > 1, x[2], NA))
+deduplicateddf$category_3 <- sapply(split_categories, function(x) ifelse(length(x) > 2, x[3], NA))
+```
+
+### Create multiple versions of price field if needed in modeling
+```{r}
+hist(deduplicateddf$price)
+deduplicateddf$price_log = log(deduplicateddf$price)
+deduplicateddf$price_sqrt = sqrt(deduplicateddf$price)
+hist(deduplicateddf$price_log)
+hist(deduplicateddf$price_sqrt)
+```
+
+# **Step 3: Exploratory analysis on original, deduplicated data**
+
+## Step 3a: Descriptive Statistics
+```{r}
+# Summary statistics
+summary_stats <- deduplicateddf %>%
+  summarise(
+    min_price = min(price, na.rm = TRUE),
+    max_price = max(price, na.rm = TRUE),
+    mean_price = mean(price, na.rm = TRUE),
+    median_price = median(price, na.rm = TRUE),
+    total_revenue = sum(price, na.rm = TRUE)
+  )
+
+print(summary_stats)
+
+# Unique value counts
+unique_counts <- deduplicateddf %>%
+  summarise(
+    unique_products = n_distinct(product_id),
+    unique_categories = n_distinct(category_1),
+    unique_users = n_distinct(user_id),
+    unique_sessions = n_distinct(user_session)
+  )
+
+print(unique_counts)
+```
+
+## Step 3b: Visualizations of Price, Event Types, Revenue
+```{r}
+# Distribution of Prices
+ggplot(deduplicateddf, aes(x = price)) +
+  geom_histogram(binwidth = 10, fill = "blue", color = "black") +
+  labs(title = "Distribution of Prices", x = "Price", y = "Frequency") +
+  theme_minimal()
+
+# Distribution of Event Types
+event_counts <- deduplicateddf %>%
+  group_by(event_type) %>%
+  summarise(count = n())
+
+ggplot(event_counts, aes(x = event_type, y = count, fill = event_type)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Event Type Distribution", x = "Event Type", y = "Count") +
+  theme_minimal()
+
+# Total Revenue by Event Type
+event_revenue <- deduplicateddf %>%
+  group_by(event_type) %>%
+  summarise(total_revenue = sum(price, na.rm = TRUE))
+
+ggplot(event_revenue, aes(x = event_type, y = total_revenue, fill = event_type)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Revenue by Event Type", x = "Event Type", y = "Total Revenue") +
+  theme_minimal()
+```
+
+## Step 3c: Identify mean and cumulative value by event/action type: View, Cart, Purchase
+```{r}
+actionSums <- tapply(deduplicateddf$price, deduplicateddf$event_type, sum)
+actionSums_dollar <- dollar(actionSums)
+actionSums_dollar
+
+original_cart_to_purchase_ratio <- 5125114/8625870
+original_cart_to_purchase_ratio
+
+actionMean <- tapply(deduplicateddf$price, deduplicateddf$event_type, mean)
+actionMeans_dollar <- dollar(actionMean)
+actionMeans_dollar
+```
+
+## Step 3d: Summarize by user
+
+### Price and price by event types by user
+```{r}
+summary_table_userpriceoriginal <- deduplicateddf %>%
+  group_by(user_id) %>%
+  summarise(
+    total_actions = n(),                   # Count of actions per user
+    total_price = sum(price, na.rm = TRUE), # Total price per user
+    price_view = sum(price[event_type == "view"], na.rm = TRUE), # Sum for event type 1
+    price_cart = sum(price[event_type == "cart"], na.rm = TRUE), # Sum for event type 2
+    price_purchase = sum(price[event_type == "purchase"], na.rm = TRUE)  # Sum for event type 3
+  )
+
+summary_table_userpriceoriginal
+```
+
+### Cart-to-purchase ratio by user
+```{r}
+# Calculate cart-to-purchase ratios by user
+cart_purchase_ratio_user <- deduplicateddf %>%
+  filter(event_type %in% c("cart", "purchase")) %>%
+  group_by(user_id, event_type) %>%
+  summarise(
+    event_count = n(),
+    total_price = sum(price, na.rm = TRUE)
+  ) %>%
+  pivot_wider(names_from = event_type, values_from = c(event_count, total_price), values_fill = 0) %>%
+  mutate(
+    cart_to_purchase_ratio_count = ifelse(event_count_cart > 0, event_count_purchase / event_count_cart, NA),
+    cart_to_purchase_ratio_price = ifelse(total_price_cart > 0, total_price_purchase / total_price_cart, NA)
+  )
+
+# View the results
+cart_purchase_ratio_user
+```
+
+## Step 3e: Summarize by session
+
+### Price and price by event types by session
+```{r}
+summary_table_sessionpriceoriginal <- deduplicateddf %>%
+  group_by(user_session) %>%
+  summarise(
+    total_actions = n(),                   # Count of actions per user
+    total_price = sum(price, na.rm = TRUE), # Total price per user
+    price_view = sum(price[event_type == "view"], na.rm = TRUE), # Sum for event type 1
+    price_cart = sum(price[event_type == "cart"], na.rm = TRUE), # Sum for event type 2
+    price_purchase = sum(price[event_type == "purchase"], na.rm = TRUE)  # Sum for event type 3
+  )
+
+summary_table_sessionpriceoriginal
+```
+
+### Cart-to-purchase ratio by session
+```{r}
+# Calculate cart-to-purchase ratios by session
+cart_purchase_ratio_session <- deduplicateddf %>%
+  filter(event_type %in% c("cart", "purchase")) %>%
+  group_by(user_session, event_type) %>%
+  summarise(
+    event_count = n(),
+    total_price = sum(price, na.rm = TRUE)
+  ) %>%
+  pivot_wider(names_from = event_type, values_from = c(event_count, total_price), values_fill = 0) %>%
+  mutate(
+    cart_to_purchase_ratio_count = ifelse(event_count_cart > 0, event_count_purchase / event_count_cart, NA),
+    cart_to_purchase_ratio_price = ifelse(total_price_cart > 0, total_price_purchase / total_price_cart, NA)
+  )
+
+# View the results
+cart_purchase_ratio_session
+```
+
+# **Step 4: Isolate baseline month data and create month in which change occurs**
+
+## Step 4a: Extract baseline (February) data and create March (change) data
+
+### Extract baseline month data
+Here, we are using the latest month of data, February
+```{r}
+# Filter for baseline month (February) and store in a new variable
+month_baseline <- deduplicateddf %>%
+  filter(time_month == 2)
+
+# View the filtered dataset
+head(month_baseline)
+summary(month_baseline)
+```
+
+### Create March data
+```{r}
+month_3 <- month_baseline
+month_3$time_month <- 3
+
+head(month_3)
+```
+
+## Step 4b: Determine March purchase to cart ratio and alter March data to fit specific problem/challenge
+
+### Determine March purchase to cart ratio
+```{r}
+initial_cart_count <- nrow(filter(month_3, event_type == "cart"))
+initial_purchase_count <- nrow(filter(month_3, event_type == "purchase"))
+initial_ratio <- initial_purchase_count / initial_cart_count
+initial_ratio
+```
+
+### Apply a reduction to purchase events in March
+```{r}
+# Calculate reduction of the purchase events
+num_to_remove <- round(initial_purchase_count * 0.15)
+
+# Randomly sample and remove above percentage of purchase events
+set.seed(123)  # For reproducibility
+purchases_to_remove <- sample(which(month_3$event_type == "purchase"), num_to_remove)
+month_3_modified <- month_3[-purchases_to_remove, ]
+```
+
+### Calculate final cart-to-purchase ratio for March
+```{r}
+final_cart_count <- nrow(filter(month_3_modified, event_type == "cart"))
+final_purchase_count <- nrow(filter(month_3_modified, event_type == "purchase"))
+final_ratio <- final_purchase_count / final_cart_count
+final_ratio
+cat("Final Cart-to-Purchase Ratio for March after 10% reduction from February:", final_ratio, "\n")
+initial_ratio-final_ratio
+```
+
+## Step 4c: Combine baseline and modified March data
+```{r}
+data_combined <- bind_rows(month_baseline, month_3_modified)
+
+head(data_combined)
+summary(data_combined)
+```
+
+# **EXPLORATORY DATA ANALYSIS**
+
+# Step 5: Exploratory analysis on change month and differential from baseline month
+
+## Step 5a: Report lost revenue from February to March
+
+- The total loss in revenue is $213,921.06 
+- The mean purchase value declined from $180.16 to $179.02
+
+### Identify cumulative and mean revenue difference by event type
+```{r}
+#Baseline month
+actionSumsBaseline <- tapply(month_baseline$price, month_baseline$event_type, sum)
+actionSums_dollarBaseline <- dollar(actionSumsBaseline)
+actionSums_dollarBaseline
+
+actionMeanBaseline <- tapply(month_baseline$price, month_baseline$event_type, mean)
+actionMeans_dollarBaseline <- dollar(actionMeanBaseline)
+actionMeans_dollarBaseline
+
+#Month 3/March
+actionSumsMarch <- tapply(month_3_modified$price, month_3_modified$event_type, sum)
+actionSums_dollarMarch <- dollar(actionSumsMarch)
+actionSums_dollarMarch
+
+actionMeanMarch <- tapply(month_3_modified$price, month_3_modified$event_type, mean)
+actionMeans_dollarMarch <- dollar(actionMeanMarch)
+actionMeans_dollarMarch
+```
+
+### Determine total loss in price/value from baseline to March
+```{r}
+#Total value loss
+actionSums_dollarBaselinePurchase <- month_baseline %>%
+  filter(event_type == "purchase") %>%
+  summarise(total_revenue = sum(price))
+
+print(actionSums_dollarBaselinePurchase)
+
+actionSums_dollarMarchPurchase <- month_3_modified %>%
+  filter(event_type == "purchase") %>%
+  summarise(total_revenue = sum(price))
+
+print(actionSums_dollarMarchPurchase)
+
+lost_revenue <- actionSums_dollarBaselinePurchase-actionSums_dollarMarchPurchase
+message <- paste("The estimated lost monthly revenue is", lost_revenue)
+message
+```
+
+# Step 5b: Factor Analysis
+
+In this section, we will examine how revenue was impacted in terms of several factors: products, pricing, and user engagement features.
+
+### Products
+
+What were the specific products most impacted by the change in terms of lost revenue? 
+```{r}
+# Filter only purchases
+baseline_purchases <- month_baseline %>% filter(event_type == "purchase")
+month3_purchases <- month_3_modified %>% filter(event_type == "purchase")
+
+# Summarize revenue by brand and product categories
+baseline_revenue <- baseline_purchases %>%
+  group_by(brand, category_1, category_2, category_3) %>%
+  summarise(total_revenue_baseline = sum(price, na.rm = TRUE), .groups = "drop")
+
+month3_revenue <- month3_purchases %>%
+  group_by(brand, category_1, category_2, category_3) %>%
+  summarise(total_revenue_month3 = sum(price, na.rm = TRUE), .groups = "drop")
+
+# Merge datasets by brand and product categories
+revenue_comparison <- merge(
+  baseline_revenue, 
+  month3_revenue, 
+  by = c("brand", "category_1", "category_2", "category_3"), 
+  all = TRUE
+)
+
+# Replace NA with 0 (if a brand-category combination is missing in a month)
+revenue_comparison[is.na(revenue_comparison)] <- 0
+
+# Calculate revenue decline
+revenue_comparison <- revenue_comparison %>%
+  mutate(revenue_decline = total_revenue_baseline - total_revenue_month3)
+
+# Sort by largest declines
+largest_declines <- revenue_comparison %>%
+  arrange(desc(revenue_decline))
+
+# View the table with the biggest declines
+print(head(largest_declines, 50))
+```
+
+
+```{r}
+# Best sellers for March
+best_sellers_march <- revenue_comparison %>%
+  arrange(desc(total_revenue_month3))  # Sort by revenue for March
+
+# View the top 50 best sellers in March
+print(head(best_sellers_march, 10))
+```
+
+How were product brands and categories impacted overall by the change in terms of lost revenue?
+```{r}
+# Summarize revenue declines by brand
+brand_declines <- revenue_comparison %>%
+  group_by(brand) %>%
+  summarise(
+    total_revenue_baseline = sum(total_revenue_baseline, na.rm = TRUE),
+    total_revenue_month3 = sum(total_revenue_month3, na.rm = TRUE)
+  ) %>%
+  mutate(revenue_decline = total_revenue_baseline - total_revenue_month3) %>%
+  arrange(desc(revenue_decline))
+
+# Summarize revenue declines by category_1
+category_1_declines <- revenue_comparison %>%
+  group_by(category_1) %>%
+  summarise(
+    total_revenue_baseline = sum(total_revenue_baseline, na.rm = TRUE),
+    total_revenue_month3 = sum(total_revenue_month3, na.rm = TRUE)
+  ) %>%
+  mutate(revenue_decline = total_revenue_baseline - total_revenue_month3) %>%
+  arrange(desc(revenue_decline))
+
+# Summarize revenue declines by category_2
+category_2_declines <- revenue_comparison %>%
+  group_by(category_2) %>%
+  summarise(
+    total_revenue_baseline = sum(total_revenue_baseline, na.rm = TRUE),
+    total_revenue_month3 = sum(total_revenue_month3, na.rm = TRUE)
+  ) %>%
+  mutate(revenue_decline = total_revenue_baseline - total_revenue_month3) %>%
+  arrange(desc(revenue_decline))
+
+# Summarize revenue declines by category_3
+category_3_declines <- revenue_comparison %>%
+  group_by(category_3) %>%
+  summarise(
+    total_revenue_baseline = sum(total_revenue_baseline, na.rm = TRUE),
+    total_revenue_month3 = sum(total_revenue_month3, na.rm = TRUE)
+  ) %>%
+  mutate(revenue_decline = total_revenue_baseline - total_revenue_month3) %>%
+  arrange(desc(revenue_decline))
+
+# View top declines for each summary
+print("Top Brand Declines:")
+print(head(brand_declines, 10))
+
+print("Top Category_1 Declines:")
+print(head(category_1_declines, 10))
+
+print("Top Category_2 Declines:")
+print(head(category_2_declines, 10))
+
+print("Top Category_3 Declines:")
+print(head(category_3_declines, 10))
+```
+
+### Pricing
+Which price points were most impacted by the change in terms of lost revenue? 
+```{r}
+# Add price bucket to the original datasets
+bucket_size <- 100  
+
+baseline_purchases <- baseline_purchases %>%
+  mutate(price_bucket = floor(price / bucket_size) * bucket_size)
+
+month3_purchases <- month3_purchases %>%
+  mutate(price_bucket = floor(price / bucket_size) * bucket_size)
+
+# Summarize revenue by price bucket for baseline and month 3
+baseline_revenue <- baseline_purchases %>%
+  group_by(price_bucket) %>%
+  summarise(total_revenue_baseline = sum(price, na.rm = TRUE), .groups = "drop")
+
+month3_revenue <- month3_purchases %>%
+  group_by(price_bucket) %>%
+  summarise(total_revenue_month3 = sum(price, na.rm = TRUE), .groups = "drop")
+
+# Merge datasets to compare revenues
+price_revenue_comparison <- merge(
+  baseline_revenue, 
+  month3_revenue, 
+  by = "price_bucket", 
+  all = TRUE
+)
+
+# Replace NA values with 0 (in case some price buckets are missing in one month)
+price_revenue_comparison[is.na(price_revenue_comparison)] <- 0
+
+# Calculate revenue decline for each price bucket
+price_revenue_comparison <- price_revenue_comparison %>%
+  mutate(revenue_decline = total_revenue_baseline - total_revenue_month3) %>%
+  arrange(desc(revenue_decline))
+
+# View top price buckets with declines
+print("Top Price Buckets with Declines:")
+print(head(price_revenue_comparison, 10))
+```
+
+Visualize the relationship between price and revenue decline
+```{r}
+# Plot revenue declines by price buckets
+ggplot(price_revenue_comparison, aes(x = price_bucket, y = revenue_decline)) +
+  geom_bar(stat = "identity", fill = "steelblue", color = "black") +
+  labs(
+    title = "Revenue Declines by Price Buckets",
+    x = "Price Bucket",
+    y = "Revenue Decline",
+    caption = "Data shows the difference between baseline and month 3 revenue"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10)
+  ) +
+  scale_x_continuous(breaks = seq(min(price_revenue_comparison$price_bucket, na.rm = TRUE),
+                                  max(price_revenue_comparison$price_bucket, na.rm = TRUE),
+                                  by = 100))  # Adjust tick marks as needed
+
+# Calculate the correlation coefficient
+correlation_value_price <- cor(price_revenue_comparison$price_bucket, price_revenue_comparison$revenue_decline, use = "complete.obs")
+
+# Scatter plot with correlation coefficient
+ggplot(price_revenue_comparison, aes(x = price_bucket, y = revenue_decline)) +
+  geom_point(color = "blue", alpha = 0.6) + # Scatter points
+  geom_smooth(method = "lm", se = FALSE, color = "red") + # Add a regression line
+  labs(
+    title = "Relationship Between Price Bucket and Revenue Decline",
+    x = "Price Bucket",
+    y = "Revenue Decline",
+    caption = paste("Correlation coefficient: ", round(correlation_value_price, 2))
+  ) +
+  theme_minimal()
+
+```
+
+### User engagement
+Which specific session engagement times were most impacted?
+```{r}
+# Filter only purchases from baseline and month 3
+baseline_purchases <- month_baseline %>% filter(event_type == "purchase")
+month3_purchases <- month_3_modified %>% filter(event_type == "purchase")
+
+# Summarize revenue by time_day and time_hour
+baseline_revenue <- baseline_purchases %>%
+  group_by(time_day, time_hour) %>%
+  summarise(total_revenue_baseline_time = sum(price, na.rm = TRUE), .groups = "drop")
+
+month3_revenue <- month3_purchases %>%
+  group_by(time_day, time_hour) %>%
+  summarise(total_revenue_month3_time = sum(price, na.rm = TRUE), .groups = "drop")
+
+# Merge datasets by time_day and time_hour
+revenue_comparison <- merge(
+  baseline_revenue, 
+  month3_revenue, 
+  by = c("time_day", "time_hour"), 
+  all = TRUE
+)
+
+# Replace NA with 0 (if a time_day-time_hour combination is missing in a month)
+revenue_comparison[is.na(revenue_comparison)] <- 0
+
+# Calculate revenue decline
+revenue_comparison <- revenue_comparison %>%
+  mutate(revenue_decline_time = total_revenue_baseline_time - total_revenue_month3_time)
+
+# Sort by largest declines
+largest_declines <- revenue_comparison %>%
+  arrange(desc(revenue_decline_time))
+
+# View the table with the biggest declines
+print(head(largest_declines, 50))
+```
+
+Which specific days or times of the week were most impacted?
+```{r}
+# Summarize revenue declines by time_day
+time_day_declines <- revenue_comparison %>%
+  group_by(time_day) %>%
+  summarise(
+    total_revenue_baseline_time = sum(total_revenue_baseline_time, na.rm = TRUE),
+    total_revenue_month3_time = sum(total_revenue_month3_time, na.rm = TRUE)
+  ) %>%
+  mutate(revenue_decline_time = total_revenue_baseline_time - total_revenue_month3_time) %>%
+  arrange(desc(revenue_decline_time))
+
+# Summarize revenue declines by time_hour
+time_hour_declines <- revenue_comparison %>%
+  group_by(time_hour) %>%
+  summarise(
+    total_revenue_baseline_time = sum(total_revenue_baseline_time, na.rm = TRUE),
+    total_revenue_month3_time = sum(total_revenue_month3_time, na.rm = TRUE)
+  ) %>%
+  mutate(revenue_decline_time = total_revenue_baseline_time - total_revenue_month3_time) %>%
+  arrange(desc(revenue_decline_time))
+
+# View top declines for each summary
+print("Top Time Day Declines:")
+print(head(time_day_declines, 10))
+
+print("Top Time Hour Declines:")
+print(head(time_hour_declines, 10))
+```
+
+```{r}
+# Ensure event_time is in datetime format
+month_baseline$event_time <- as.POSIXct(month_baseline$event_time, format="%Y-%m-%d %H:%M:%S", tz="UTC")
+month_3_modified$event_time <- as.POSIXct(month_3_modified$event_time, format="%Y-%m-%d %H:%M:%S", tz="UTC")
+
+# Calculate the session duration for each session in baseline data
+session_duration_baseline <- month_baseline %>%
+  group_by(user_session) %>%
+  summarise(session_start = min(event_time), 
+            session_end = max(event_time),
+            session_duration = as.numeric(difftime(session_end, session_start, units = "secs")),
+            .groups = "drop")
+
+# Calculate the session duration for each session in month 3 data
+session_duration_month3 <- month_3_modified %>%
+  group_by(user_session) %>%
+  summarise(session_start = min(event_time), 
+            session_end = max(event_time),
+            session_duration = as.numeric(difftime(session_end, session_start, units = "secs")),
+            .groups = "drop")
+
+# Summarize revenue by user session in baseline data
+baseline_revenue_session <- month_baseline %>%
+  group_by(user_session) %>%
+  summarise(total_revenue_baseline = sum(price, na.rm = TRUE), .groups = "drop")
+
+# Summarize revenue by user session in month 3 data
+month3_revenue_session <- month_3_modified %>%
+  group_by(user_session) %>%
+  summarise(total_revenue_month3 = sum(price, na.rm = TRUE), .groups = "drop")
+
+# Merge session duration and revenue data for both baseline and month3
+session_revenue_comparison <- session_duration_baseline %>%
+  left_join(session_duration_month3, by = "user_session") %>%
+  left_join(baseline_revenue_session, by = "user_session") %>%
+  left_join(month3_revenue_session, by = "user_session")
+
+# Replace NA values in numeric columns with 0 (but not in user_session)
+session_revenue_comparison <- session_revenue_comparison %>%
+  mutate(across(where(is.numeric), ~ replace(., is.na(.), 0)))
+
+# Calculate revenue decline for each session
+session_revenue_comparison <- session_revenue_comparison %>%
+  mutate(revenue_decline = total_revenue_baseline - total_revenue_month3)
+
+# Sort session_revenue_comparison by revenue_decline in descending order
+session_revenue_comparison_sorted <- session_revenue_comparison %>%
+  arrange(desc(revenue_decline))
+
+# View the top rows of the sorted data
+head(session_revenue_comparison_sorted)
+```
+
+Visualize the relationship between session duration (month 3) and revenue decline
+```{r}
+# Calculate the correlation coefficient
+correlation_value <- cor(session_revenue_comparison_sorted$session_duration.y, session_revenue_comparison_sorted$revenue_decline, use = "complete.obs")
+
+# Scatter plot with correlation coefficient
+ggplot(session_revenue_comparison_sorted, aes(x = session_duration.y, y = revenue_decline)) +
+  geom_point(color = "blue", alpha = 0.6) + # Scatter points
+  geom_smooth(method = "lm", se = FALSE, color = "red") + # Add a regression line
+  labs(
+    title = "Relationship Between Session Duration and Revenue Decline",
+    x = "Session Duration (in seconds)",
+    y = "Revenue Decline",
+    caption = paste("Correlation coefficient: ", round(correlation_value, 2))
+  ) +
+  theme_minimal()
+```
+
+## Step 5c: User Engagement Feature Engineering
+
+### Interaction counts
+```{r}
+# Count the number of views, carts, and purchases for each user session
+interaction_counts <- month_3_modified %>%
+  group_by(user_session) %>%
+  summarize(
+    views_count = sum(event_type == "view"),
+    cart_count = sum(event_type == "cart"),
+    purchase_count = sum(event_type == "purchase"),
+    total_interactions = views_count + cart_count + purchase_count
+  )
+
+interaction_counts_long <- interaction_counts %>%
+  pivot_longer(cols = c(views_count, cart_count, purchase_count), names_to = "interaction_type", values_to = "count")
+
+ggplot(interaction_counts_long, aes(x = interaction_type, y = count, fill = interaction_type)) +
+  geom_boxplot(outlier.colour = "red", outlier.shape = 1, outlier.size = 2) +
+  labs(title = "Boxplot of Interaction Counts", x = "Interaction Type", y = "Count") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+
+The boxplot illustrates the distribution of interaction counts (views, cart additions, and purchases) across sessions, highlighting significant engagement in product views compared to relatively lower cart additions and purchases.
+
+### Session duration
+```{r}
+# Convert event_time to POSIXct
+month_3_modified$event_time <- as.POSIXct(month_3_modified$event_time, format = "%Y-%m-%d %H:%M:%S", tz = "UTC")
+
+# Calculate session duration per user session
+session_duration <- month_3_modified %>%
+  group_by(user_session) %>%
+  summarize(session_duration = as.numeric(difftime(max(event_time), min(event_time), units = "secs")))
+
+```
+
+### User interaction frequency
+```{r}
+# Combine total interactions and session duration to calculate interaction frequency
+interaction_frequency <- interaction_counts %>%
+  left_join(session_duration, by = "user_session") %>%
+  mutate(interaction_frequency = total_interactions / (session_duration / 60 + 1))  # Avoid division by zero
+
+```
+
+### Category diversity
+```{r}
+# Count the number of unique categories per session
+category_diversity <- month_3_modified %>%
+  group_by(user_session) %>%
+  summarize(category_diversity = n_distinct(category_1))
+
+```
+
+### Merge features
+```{r}
+# Merge all features into the main dataset
+features <- interaction_counts %>%
+  left_join(session_duration, by = "user_session") %>%
+  left_join(interaction_frequency %>% select(user_session, interaction_frequency), by = "user_session") %>%
+  left_join(category_diversity, by = "user_session")
+
+# Add features to the main dataset
+month_3_modified <- month_3_modified %>%
+  left_join(features, by = "user_session")
+```
+
+```{r}
+# Create a binary field indicating if a session resulted in a conversion from cart to purchase
+cart_to_purchase <- month_3_modified %>%
+  group_by(user_session) %>%
+  summarize(
+    cart_events = sum(event_type == "cart"),  # Count cart events
+    purchase_events = sum(event_type == "purchase"),  # Count purchase events
+    cart_to_purchase = ifelse(cart_events > 0 & purchase_events > 0, 1, 0)  # 1 if conversion occurred, 0 otherwise
+  )
+
+# Merge cart-to-purchase conversion field into the main dataset
+month_3_modified <- month_3_modified %>%
+  left_join(cart_to_purchase, by = "user_session")
+```
+
+# **PREDICTIVE MODELING**
+
+In this section, our goal is to understand the features and predict the decision likelihood for cart-to-purchase conversion 
+
+We will use classification tree, random forest, and logistic regression and compare the performance of each model.
+
+# **Step 6: Plot and compare all three models**
+
+## Step 6a: Prepare dataset
+```{r}
+# Check for missing values in the dataset
+colSums(is.na(month_3_modified))
+
+# Remove rows with any missing values
+month_3_modified <- month_3_modified %>%
+  drop_na()
+```
+
+## Step 6b: Training and test sets
+```{r}
+# Ensure cart_to_purchase is a factor
+month_3_modified$cart_to_purchase <- as.factor(month_3_modified$cart_to_purchase)
+
+# Create training and validation sets
+set.seed(123)  # For reproducibility
+train_index <- createDataPartition(month_3_modified$cart_to_purchase, p = 0.8, list = FALSE)
+train_data <- month_3_modified[train_index, ]
+test_data <- month_3_modified[-train_index, ]
+```
+
+## Step 6c: Compare random forest, classification tree, and logistic models
+```{r}
+#Convert Y variable to factor type
+train_data$cart_to_purchase <- as.factor(train_data$cart_to_purchase)
+test_data$cart_to_purchase <- as.factor(test_data$cart_to_purchase)
+
+# Random Forest Model
+rf_model <- randomForest(
+  formula = cart_to_purchase ~ views_count + cart_count + session_duration + price + category_diversity + category_1,
+  data = train_data,
+  ntree = 400,
+  replace = TRUE,
+  importance = TRUE
+)
+
+# Logistic Regression model
+logistic_model <- glm(cart_to_purchase ~ views_count + cart_count + session_duration + price + category_diversity + category_1, 
+                      family = "binomial", data = train_data)
+
+# Classification Tree model
+tree_model <- rpart(cart_to_purchase ~ views_count + cart_count + session_duration + price + category_diversity + category_1, 
+                    method = "class", data = train_data)
+printcp(tree_model)
+
+# Random Forest model predictions
+pred.prob.rf <- predict(rf_model, test_data, type = "prob")[, 2]
+
+# Logistic model predictions
+pred.prob.logistic <- predict(logistic_model, test_data, type = "response")
+
+# Pruned classification tree predictions
+pred.prob.tree <- predict(tree_model, test_data, type = "prob")[, 2]
+
+# ROC for Random Forest, Logistic, and Tree models
+roc.rf <- performance(prediction(pred.prob.rf, test_data$cart_to_purchase), "sens", "fpr")
+roc.logistic <- performance(prediction(pred.prob.logistic, test_data$cart_to_purchase), "sens", "fpr")
+roc.tree <- performance(prediction(pred.prob.tree, test_data$cart_to_purchase), "sens", "fpr")
+
+# Plot all three ROC curves
+plot(roc.rf)
+plot(roc.logistic, col = "red", add = TRUE)
+plot(roc.tree, col = "blue", add = TRUE)
+
+# Sensitivity chart for all models
+plot(roc.rf, xlim = c(0.01, 0.4), ylim = c(0.5, 0.96))
+plot(roc.logistic, col = "red", add = TRUE)
+plot(roc.tree, col = "blue", add = TRUE)
+
+# LIFT curve for all models
+lift.rf <- performance(prediction(pred.prob.rf, test_data$cart_to_purchase), "lift", "rpp")
+lift.logistic <- performance(prediction(pred.prob.logistic, test_data$cart_to_purchase), "lift", "rpp")
+lift.tree <- performance(prediction(pred.prob.tree, test_data$cart_to_purchase), "lift", "rpp")
+
+# Plot all three LIFT curves
+plot(lift.rf)
+plot(lift.logistic, col = "red", add = TRUE)
+plot(lift.tree, col = "blue", add = TRUE)
+```
+```{r}
+# AUC for all models
+auc.rf <- performance(prediction(pred.prob.rf, test_data$cart_to_purchase), "auc")@y.values
+auc.logistic <- performance(prediction(pred.prob.logistic, test_data$cart_to_purchase), "auc")@y.values
+auc.tree <- performance(prediction(pred.prob.tree, test_data$cart_to_purchase), "auc")@y.values
+
+auc.rf
+auc.logistic
+auc.tree
+```
+
+Based on the higher area under the curve for random forest, we will select this as our conversion predictive model.
+
+## Step 6d: Analyze the Random Forest Model
+```{r}
+# Plot the Random Forest model
+plot(rf_model)
+
+# Plot the variable importance
+varImpPlot(rf_model)
+
+# Predict the probabilities of the second class (1 = cart-to-purchase)
+pred.prob.rf <- predict(rf_model, test_data, type = "prob")[, 2]
+
+# Create confusion matrix
+conf_matrix <- table(test_data$cart_to_purchase, pred.prob.rf > 0.5)
+conf_matrix
+
+# Extract values from the confusion matrix
+true_negatives <- conf_matrix[1, 1]  # Actual 0, Predicted FALSE
+false_positives <- conf_matrix[1, 2]  # Actual 0, Predicted TRUE
+false_negatives <- conf_matrix[2, 1]  # Actual 1, Predicted FALSE
+true_positives <- conf_matrix[2, 2]  # Actual 1, Predicted TRUE
+
+true_negatives
+false_positives
+false_negatives
+true_positives
+
+# Misclassification rate
+misclassification_rate <- (false_positives + false_negatives) / sum(conf_matrix)
+misclassification_rate
+
+# Class 1 error rate (False Negative Rate)
+class_1_error_rate <- false_negatives / (true_positives + false_negatives)
+class_1_error_rate
+
+# Class 0 error rate (False Positive Rate)
+class_0_error_rate <- false_positives / (false_positives + true_negatives)
+class_0_error_rate
+
+# Precision: True Positives / (True Positives + False Positives)
+precision <- true_positives / (true_positives + false_positives)
+precision
+
+# Negative Predictive Value: True Negatives / (True Negatives + False Negatives)
+npv <- true_negatives / (true_negatives + false_negatives)
+npv
+
+# ROC and AUC
+pred.rf <- prediction(pred.prob.rf, test_data$cart_to_purchase)
+performance(pred.rf, measure = "auc")@y.values
+roc.rf <- performance(pred.rf, "sens", "fpr")
+plot(roc.rf)
+
+# LIFT curve
+lift.rf <- performance(pred.rf, "lift", "rpp")
+plot(lift.rf)
+
+# Sensitivity chart
+plot(roc.rf, xlim = c(0.05, 0.10), ylim = c(0.96, 0.99))
+```
+
+# **Step 7: Analysis to recover lost revenue - overall increased conversion model**
+Here, we provide the user with a tool to simulate a third month in which the higher likelihood sessions are promoted, sufficient to ensure that the total value of price column for purchases increases from $1,162,885 in March to $1,376,806 in April.
+
+## Step 7a: Apply prediction likelihood to dataset
+```{r}
+# Ensure cart_to_purchase is a factor for prediction
+month_3_modified$cart_to_purchase <- as.factor(month_3_modified$cart_to_purchase)
+
+# Predict the probabilities for the entire month_3_modified dataset
+pred.prob.rf <- predict(rf_model, month_3_modified, type = "prob")[, 2]
+
+# Add the predicted probabilities to the dataset as conversion likelihood
+month_3_modified$conversion_likelihood <- pred.prob.rf
+
+# Check the first few rows to ensure the likelihood is correctly added
+head(month_3_modified)
+```
+
+## Step 7b: Simulate revenue recovery
+```{r}
+#Step 1: Define the top x% of purchase likelihood sessions to replicate and bottom x% to remove
+top_percentage <- 0.21  # Example: Promote top 20% of sessions
+bottom_percentage <- 0.2  # Example: Remove bottom 20% of sessions
+
+```
+
+```{r}
+#Step 2: Filter purchase events
+purchase_data <- month_3_modified %>% filter(event_type == "purchase")
+```
+
+```{r}
+#Step 3: Sort purchase data by conversion likelihood (highest to lowest)
+purchase_data_sorted <- purchase_data %>%
+  arrange(desc(conversion_likelihood))
+head(purchase_data_sorted)
+```
+
+```{r}
+#Step 4: Calculate how many rows to keep for top x% and bottom x%
+top_rows_count <- floor(nrow(purchase_data_sorted) * top_percentage)
+bottom_rows_count <- floor(nrow(purchase_data_sorted) * bottom_percentage)
+```
+
+```{r}
+#Step 5: Select top x% and bottom x% sessions
+top_sessions <- purchase_data_sorted[1:top_rows_count, ]
+bottom_sessions <- purchase_data_sorted[(nrow(purchase_data_sorted) - bottom_rows_count + 1):nrow(purchase_data_sorted), ]
+```
+
+```{r}
+#Step 6: Remove the bottom x% sessions from purchase data
+purchase_data_modified <- purchase_data_sorted[!purchase_data_sorted$user_session %in% bottom_sessions$user_session, ]
+```
+
+```{r}
+#Step 7: Replicate the top x% sessions
+purchase_data_modified <- rbind(purchase_data_modified, top_sessions)
+```
+
+```{r}
+#Step 8: Combine the modified purchase data with the non-purchase data
+non_purchase_data <- month_3_modified %>% filter(event_type != "purchase")
+month_3_modified_replicated <- rbind(purchase_data_modified, non_purchase_data)
+```
+
+```{r}
+#Step 9: Calculate the total purchase value for the replicated dataset before and after modification
+total_purchase_value_original <- sum(month_3_modified$price[month_3_modified$event_type == "purchase"])
+total_purchase_value_modified <- sum(month_3_modified_replicated$price[month_3_modified_replicated$event_type == "purchase"])
+```
+
+```{r}
+ #Step 10: Ensure the purchase value for Month 4 matches the target value
+target_total_value_month4 <- 1376806  # Target purchase value for Month 4
+
+if (total_purchase_value_modified < target_total_value_month4) {
+   #Calculate how much value we still need to add
+  value_needed <- target_total_value_month4 - total_purchase_value_modified
+  
+  #If necessary, replicate the top sessions further to reach the target value
+  additional_sessions_needed <- ceiling(value_needed / mean(top_sessions$price))
+  additional_sessions <- top_sessions[sample(nrow(top_sessions), additional_sessions_needed, replace = TRUE), ]
+  
+  #Add the additional sessions to the modified data
+  month_3_modified_replicated <- rbind(month_3_modified_replicated, additional_sessions)
+  
+ # Recalculate the new total purchase value
+  total_purchase_value_modified <- sum(month_3_modified_replicated$price[month_3_modified_replicated$event_type == "purchase"])
+  
+  cat("Adjusted purchase value for Month 4 (after adding more top sessions):", total_purchase_value_modified, "\n")
+}
+```
+
+```{r}
+#Step 11: Save the modified dataset
+write.csv(month_3_modified_replicated, "month_4_simulated_with_adjustment.csv", row.names = FALSE)
+cat("Month 4 simulated dataset saved as 'month_4_simulated_with_adjustment.csv'.\n")
+```
+
+## Step 7c: Summarize overall revenue recovery of increased likelihood model
+
+- **Original month 2 total purchase value:** 1,376,806
+- **Month 3 with 10% decline total purchase value:** 1,162,885
+- **Month 4 modified total purchase value:** 1,379,896
+
+```{r}
+#Revenue increase from March to April
+1379896-1162885
+```
+
+
+## Step 7d: Analyze features of top sessions
+
+### Summary of most impactful features
+```{r}
+#Show most impactful variables in random forest model
+varImpPlot(rf_model)
+
+#Analyze the features of the top sessions
+top_sessions_features <- top_sessions %>%
+  select(conversion_likelihood, views_count, cart_count, session_duration, price, category_diversity, category_1)
+
+#Summarize the features of the top sessions
+summary(top_sessions_features)
+```
+
+### Analysis of specific features
+
+**Views Count**
+```{r}
+# Categorize views count into ranges
+top_sessions_features <- top_sessions_features %>%
+  mutate(
+    views_range = cut(
+      views_count,
+      breaks = c(1, 5, 10, 20, 50, Inf),
+      labels = c("1-4", "5-9", "10-19", "20-49", "50+"),
+      include.lowest = TRUE
+    )
+  )
+
+# Calculate mean likelihood and relative difference by views count range
+views_summary <- top_sessions_features %>%
+  group_by(views_range) %>%
+  summarise(mean_likelihood = mean(conversion_likelihood, na.rm = TRUE)) %>%
+  mutate(relative_difference = (mean_likelihood - mean(mean_likelihood)) / mean(mean_likelihood))
+
+# Plot the relative difference by views count range
+ggplot(views_summary, aes(x = views_range, y = relative_difference * 100, fill = views_range)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Relative Difference in Conversion Likelihood by Views Count Range",
+    x = "Views Count Range",
+    y = "Relative Difference (%)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+**Cart Count**
+```{r}
+# Categorize cart count into ranges
+top_sessions_features <- top_sessions_features %>%
+  mutate(
+    cart_range = cut(
+      cart_count,
+      breaks = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, Inf),
+      labels = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10+"),
+      include.lowest = TRUE
+    )
+  )
+
+# Calculate mean likelihood and relative difference by cart count range
+cart_summary <- top_sessions_features %>%
+  group_by(cart_range) %>%
+  summarise(mean_likelihood = mean(conversion_likelihood, na.rm = TRUE)) %>%
+  mutate(relative_difference = (mean_likelihood - mean(mean_likelihood)) / mean(mean_likelihood))
+
+# Plot the relative difference by cart count range
+ggplot(cart_summary, aes(x = cart_range, y = relative_difference * 100, fill = cart_range)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Relative Difference in Conversion Likelihood by Cart Count Range",
+    x = "Cart Count Range",
+    y = "Relative Difference (%)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+**Session Duration**
+```{r}
+# Add session_duration_minutes and categorize into session ranges
+top_sessions_features <- top_sessions_features %>%
+  mutate(
+    session_duration_minutes = session_duration / 60,  # Convert session duration to minutes
+    session_range = cut(
+      session_duration_minutes,
+      breaks = c(1, 5, 10, 15, 30, 45, 60, Inf),
+      labels = c("1-4", "5-9", "10-14", "15-29", "30-44", "45-59", "60+"),
+      include.lowest = TRUE
+    )
+  )
+ 
+# Calculate mean likelihood and relative difference by session duration range
+session_summary <- top_sessions_features %>%
+  group_by(session_range) %>%
+  summarise(mean_likelihood = mean(conversion_likelihood, na.rm = TRUE)) %>%
+  mutate(relative_difference = (mean_likelihood - mean(mean_likelihood)) / mean(mean_likelihood))
+ 
+# Plot the relative difference by session duration range
+ggplot(session_summary, aes(x = session_range, y = relative_difference * 100, fill = session_range)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Relative Difference in Conversion Likelihood by Session Duration Range in Minutes",
+    x = "Session Duration Range in Minutes",
+    y = "Relative Difference (%)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+**Price Bucket**
+```{r}
+top_sessions_features <- top_sessions_features %>%
+  mutate(
+    price_range = cut(
+      price,
+      breaks = c(1, 100, 200, 300, 400, 500, 600, 700, 800, 900, Inf),
+      labels = c("$1-$99", "$100-$199", "$200-$299", "$300-$399", "$400-$499", "$500-$599", "$600-$699", "$700-$799", "$800-$899", "$900+"),
+      include.lowest = TRUE
+    )
+  )
+
+# Calculate relative differences
+overall_mean <- mean(top_sessions_features$conversion_likelihood, na.rm = TRUE)
+price_range_summary <- top_sessions_features %>%
+  group_by(price_range) %>%
+  summarise(mean_likelihood = mean(conversion_likelihood, na.rm = TRUE)) %>%
+  mutate(relative_difference = (mean_likelihood - overall_mean) / overall_mean * 100)
+ 
+# Plot relative differences
+ggplot(price_range_summary, aes(x = price_range, y = relative_difference, fill = price_range)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Relative Difference in Conversion Likelihood by Price Range",
+    x = "Price Range",
+    y = "Relative Difference (%)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+**Category Diversity**
+```{r}
+# Compare single vs. multi-category users
+top_sessions_features <- top_sessions_features %>%
+  mutate(
+    category_diversity_range = cut(
+      category_diversity,
+      breaks = c(1, 2, Inf),
+      labels = c("Single Category", "Multi-Category"),
+      include.lowest = TRUE
+    )
+  )
+
+# Calculate mean likelihood and relative difference by category diversity range
+category_diversity_summary <- top_sessions_features %>%
+  group_by(category_diversity_range) %>%
+  summarise(mean_likelihood = mean(conversion_likelihood, na.rm = TRUE)) %>%
+  mutate(relative_difference = (mean_likelihood - mean(mean_likelihood)) / mean(mean_likelihood))
+
+# Plot the relative difference by category diversity range
+ggplot(category_diversity_summary, aes(x = category_diversity_range, y = relative_difference * 100, fill = category_diversity_range)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Relative Difference in Conversion Likelihood by Category Diversity Range",
+    x = "Category Diversity Range",
+    y = "Relative Difference (%)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Categorize category diversity into ranges
+top_sessions_features <- top_sessions_features %>%
+  mutate(
+    category_diversity_range = cut(
+      category_diversity,
+      breaks = c(1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, Inf),
+      labels = c("1-1.5", "1.5-2", "2-2.5", "2.5-3", "3-3.5", "3.5-4", "4-4.5", "4.5-5", "5+"),
+      include.lowest = TRUE
+    )
+  )
+
+# Calculate mean likelihood and relative difference by category diversity range
+category_diversity_summary <- top_sessions_features %>%
+  group_by(category_diversity_range) %>%
+  summarise(mean_likelihood = mean(conversion_likelihood, na.rm = TRUE)) %>%
+  mutate(relative_difference = (mean_likelihood - mean(mean_likelihood)) / mean(mean_likelihood))
+
+# Plot the relative difference by category diversity range
+ggplot(category_diversity_summary, aes(x = category_diversity_range, y = relative_difference * 100, fill = category_diversity_range)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Relative Difference in Conversion Likelihood by Category Diversity Range",
+    x = "Category Diversity Range",
+    y = "Relative Difference (%)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+**High Level Category**
+```{r}
+# Calculate mean likelihood and relative difference for each category in category_1
+category_1_summary <- top_sessions_features %>%
+  group_by(category_1) %>%
+  summarise(mean_likelihood = mean(conversion_likelihood, na.rm = TRUE)) %>%
+  mutate(relative_difference = (mean_likelihood - mean(mean_likelihood)) / mean(mean_likelihood))
+
+# Plot the relative difference for each category in category_1
+ggplot(category_1_summary, aes(x = reorder(category_1, relative_difference), y = relative_difference * 100, fill = category_1)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Relative Difference in Conversion Likelihood by Category",
+    x = "Category",
+    y = "Relative Difference (%)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  coord_flip()  # Flip the coordinates for better readability if there are many categories
+```
+
+# **Step 8: Linear Regression for Single Variable**
+
+Here, we are testing how increasing the value of a single variable (such as the number of items in a cart) influence purchase revenue.
+
+## Step 8a: Summarize data and model performance
+```{r}
+summary(month_3_modified_replicated)
+```
+
+The linear regression model using total revenue as the response variable explains 33.41% of the variance (R² = 0.3341) and has the lowest residual standard error (288), outperforming both the log-transformed revenue model (R² = 0.05943, residual standard error = 1.164) and the square root-transformed revenue model (R² = 0.1751, residual standard error = 4.991) in terms of explained variance and predictive accuracy.
+
+## Step 8b: Create and compare linear models
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# Step 1: Aggregate and transform data
+session_data <- month_3_modified_replicated %>%
+  group_by(user_session) %>%
+  summarise(
+    total_cart_additions = sum(cart_count, na.rm = TRUE),
+    total_revenue = sum(price * (event_type == "purchase"), na.rm = TRUE),
+    total_purchases = sum(event_type == "purchase", na.rm = TRUE)
+  ) %>%
+  mutate(
+    revenue_log = ifelse(total_revenue > 0, log(total_revenue), 0),
+    revenue_sqrt = sqrt(total_revenue),
+    cart_to_purchase_ratio = ifelse(total_cart_additions > 0, total_purchases / total_cart_additions, 0)
+  )
+
+# Step 2: Fit Linear Models
+model_revenue <- lm(total_revenue ~ total_cart_additions, data = session_data)
+model_revenue_log <- lm(revenue_log ~ total_cart_additions, data = session_data)
+model_revenue_sqrt <- lm(revenue_sqrt ~ total_cart_additions, data = session_data)
+
+# Step 3: Summarize Models
+summary_revenue <- summary(model_revenue)
+summary_revenue_log <- summary(model_revenue_log)
+summary_revenue_sqrt <- summary(model_revenue_sqrt)
+
+# Print Summaries
+cat("Summary for Revenue Model:\n")
+print(summary_revenue)
+
+cat("\nSummary for Log Revenue Model:\n")
+print(summary_revenue_log)
+
+cat("\nSummary for Sqrt Revenue Model:\n")
+print(summary_revenue_sqrt)
+
+# Step 4: Compare Metrics
+r_squared <- c(
+  summary_revenue$r.squared,
+  summary_revenue_log$r.squared,
+  summary_revenue_sqrt$r.squared
+)
+
+rmse <- c(
+  sqrt(mean(model_revenue$residuals^2)),
+  sqrt(mean(model_revenue_log$residuals^2)),
+  sqrt(mean(model_revenue_sqrt$residuals^2))
+)
+
+model_comparison <- data.frame(
+  Model = c("Revenue", "Log Revenue", "Sqrt Revenue"),
+  R_Squared = r_squared,
+  RMSE = rmse
+)
+
+# Step 5: Print Model Comparison
+cat("\nModel Comparison:\n")
+print(model_comparison)
+
+# Step 6: Visualize Linear Relationships
+ggplot(session_data, aes(x = total_cart_additions, y = total_revenue)) +
+  geom_point() +
+  geom_smooth(method = "lm", color = "blue") +
+  labs(
+    title = "Linear Regression: Total Cart Additions vs. Revenue",
+    x = "Total Cart Additions",
+    y = "Revenue"
+  ) +
+  theme_minimal()
+
+ggplot(session_data, aes(x = total_cart_additions, y = revenue_log)) +
+  geom_point() +
+  geom_smooth(method = "lm", color = "blue") +
+  labs(
+    title = "Linear Regression: Total Cart Additions vs. Log Revenue",
+    x = "Total Cart Additions",
+    y = "Log Revenue"
+  ) +
+  theme_minimal()
+
+ggplot(session_data, aes(x = total_cart_additions, y = revenue_sqrt)) +
+  geom_point() +
+  geom_smooth(method = "lm", color = "blue") +
+  labs(
+    title = "Linear Regression: Total Cart Additions vs. Sqrt Revenue",
+    x = "Total Cart Additions",
+    y = "Sqrt Revenue"
+  ) +
+  theme_minimal()
+
+
+plot(model_revenue)
+
+```
+```{r}
+# Calculate Cook's Distance
+cooks_distance <- cooks.distance(model_revenue)
+
+# Add Cook's Distance to the dataset for analysis
+session_data$cooks_distance <- cooks_distance
+
+# Threshold for identifying influential points
+threshold <- 4 / nrow(session_data)
+
+# Identify high-leverage points
+high_leverage_points <- which(cooks_distance > threshold)
+
+# Display high-leverage points
+cat("Number of high-leverage points:", length(high_leverage_points), "\n")
+cat("High-leverage points indices:\n")
+print(high_leverage_points)
+
+# View the corresponding rows in the dataset
+high_leverage_data <- session_data[high_leverage_points, ]
+head(high_leverage_data)
+```
+
+```{r}
+# Remove high-leverage points from the dataset
+session_data_filtered <- session_data[-high_leverage_points, ]
+
+# Refit the model with the filtered data
+model_revenue_filtered <- lm(total_revenue ~ total_cart_additions, data = session_data_filtered)
+
+# Summary of the updated model
+summary(model_revenue_filtered)
+
+# Diagnostic plots for the new model
+plot(model_revenue_filtered)
+```
+
+## Step 8c: Predict revenue impact
+```{r}
+# Step 7: Predict the impact of a 20% increase in cart additions
+current_cart_additions <- sum(session_data$total_cart_additions, na.rm = TRUE)
+current_revenue <- coef(model_revenue)[1] + coef(model_revenue)[2] * current_cart_additions
+increased_cart_additions <- current_cart_additions * 1.2
+increased_revenue <- coef(model_revenue)[1] + coef(model_revenue)[2] * increased_cart_additions
+
+impact <- increased_revenue - current_revenue
+
+cat("\nCurrent Revenue :", current_revenue, "\n")
+cat("Increased Revenue :", increased_revenue, "\n")
+cat("Impact of 20% Increase in Cart Additions:", impact, "\n")
+```
+
+A 20% increase in cart additions could increase current revenue from $619,940 to $743,924, resulting in an additional $123,984 in revenue. However, this projection relies on a regression model with limited robustness due to low R-squared values, potential non-linearity in relationships, and heteroscedasticity observed in the residuals, indicating that further refinement of the model is needed for more accurate predictions.
+
+# **Recommended Solutions**
+
+## **Overview**
+The following strategies for recovering lost revenue are based on our analysis, including results from the random forest model. This model was the most successful at identifying the key factors driving cart-to-purchase conversions, allowing us to recommend targeted actions to influence conversion that are grounded in statistical insights.
+
+---
+
+## **Key Findings**
+The analysis identified the following variables as the most significant predictors of cart-to-purchase conversions:
+
+1. **Cart Count**: Users adding more items to their cart are significantly more likely to convert.
+2. **Session Duration**: Longer session times are associated with higher conversion rates.
+3. **Views Count**: Engaged users who explore more products are more likely to make a purchase.
+4. **Price**: Low to mid-range priced items (<$300) are most likely to convert, while higher-priced items show a drop in conversions.
+5. **Category Diversity**: Users interacting with multiple categories of products are more likely to purchase.
+6. **Category_1**: Specific high-level product categories influence the likelihood of conversion.
+
+## **Recommended Strategies**
+
+### **1. Maximize Cart Additions**
+- **Why?** Modeling results show that cart count is the strongest driver of conversion.
+- **Action Steps:**
+  - Encourage users to add items to their cart through notifications or prompts.
+  - Use cart abandonment reminders to re-engage users who haven’t completed their purchases.
+  - Offer incentives for adding multiple items to the cart (e.g., free shipping thresholds).
+
+---
+
+### **2. Increase Session Duration**
+- **Why?** Users with longer sessions are statistically more likely to convert.
+- **Action Steps:**
+  - Add personalized recommendations and curated product collections to extend browsing time.
+  - Improve navigation and site speed to reduce friction during the shopping experience.
+  - Introduce features like "Recently Viewed" or "You May Also Like" to encourage more engagement.
+
+---
+
+### **3. Boost Product Views**
+- **Why?** Users who explore more products tend to have a higher likelihood of purchase.
+- **Action Steps:**
+  - Highlight popular products on the homepage to catch attention.
+  - Use algorithms to suggest products similar to those already viewed.
+  - Display cross-sell suggestions on product pages to promote complementary items.
+
+---
+
+### **4. Target Optimal Price Points**
+- **Why?** Our analysis shows low to mid-range priced items (<$300) have the highest conversion likelihood.
+- **Action Steps:**
+  - Offer discounts or promotions on mid-range products to boost conversions.
+  - Bundle products to create value-driven offers for users.
+  - Use dynamic pricing to align prices with user demand and behavior.
+
+---
+
+### **5. Encourage Category Exploration**
+- **Why?** Users engaging with diverse product categories are more likely to purchase.
+- **Action Steps:**
+  - Promote multi-category bundles (e.g., "Complete Your Look" or "Best Deals in Every Category").
+  - Target users with ads or emails showcasing products from less explored categories.
+  - Highlight diverse product ranges in campaigns to appeal to varied user interests.
+
+---
+
+### **Limitations**
+- **Assumptions in Data Distribution:** The analysis assumes that the purchase decline is distributed randomly across sessions, categories, and price points. This may not capture systemic biases or specific external factors affecting user behavior (e.g., seasonal trends or market conditions).
+
+- **Incomplete Data:** The dataset may include noise or missing values, particularly in categorical fields (e.g., brand, category_code). While cleaning and deduplication were performed, the impact of incomplete or inaccurate data on model performance cannot be ruled out.
+
+- **Model Simplifications:** Predictive models were built using selected features, which may overlook additional factors (e.g., external economic indicators, promotional campaigns) that could influence cart-to-purchase behavior.
+
+- **Simulation Limitations:** The simulated April dataset assumes the success of interventions (e.g., promoting high-likelihood sessions) without considering real-world constraints like user engagement limits or marketing resource availability.
+
+## **Conclusion**
+To address the decline in the cart-to-purchase ratio, the focus should be on recovering $213,921 in lost revenue through enhanced user engagement, optimized pricing, and category diversity. 
+
+Immediate actions include cart abandonment campaigns, showcasing bestsellers, and cross-selling prompts, while medium-term strategies involve dynamic pricing, curated promotions, and category exploration. Collaboration across teams and investments in technology and marketing will ensure successful implementation.
+
+These efforts aim to recover lost revenue, add ~$217,000 in monthly revenue, and foster long-term user engagement and growth.
